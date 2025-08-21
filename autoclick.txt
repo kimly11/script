@@ -1,0 +1,12 @@
+import pyautogui
+import time
+
+def press_ctrl_1_with_delay():
+    while True:
+
+        pyautogui.hotkey('ctrl', '1')
+        print("Presses Ctrl+1")
+
+        time.sleep(70)
+
+press_ctrl_1_with_delay()
