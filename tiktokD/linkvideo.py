@@ -9,11 +9,9 @@ import yt_dlp
 APP_TITLE = "Kimly Tool KH — TikTok Downloader"
 
 def clean_profile_url(url: str) -> str:
-    """Normalize TikTok profile link."""
     url = url.strip()
     if not url:
         return url
-    # Keep only the part before '?'
     url = url.split("?")[0]
     m = re.search(r"(https?://)?(www\.)?tiktok\.com/@[^/]+/?", url, flags=re.I)
     if m:
@@ -180,6 +178,8 @@ class TikTokDownloader(tk.Tk):
     # --- Download full profile ---
     def _download_profile(self, profile_url: str, count: int | None):
         self.log_line(f"🔗 Profile: {profile_url}")
+
+        # Correct options for TikTok profiles
         ydl_opts = {
             "outtmpl": os.path.join(self.download_folder, "%(uploader)s_%(id)s.%(ext)s"),
             "merge_output_format": "mp4",
@@ -189,15 +189,15 @@ class TikTokDownloader(tk.Tk):
             "no_warnings": True,
             "progress_hooks": [self._progress_hook],
         }
-        if count is not None:
-            ydl_opts["playlistend"] = count
 
         try:
-            # Count videos first
-            with yt_dlp.YoutubeDL({"quiet": True, "extract_flat": "in_playlist"}) as probe:
+            # Extract videos without flattening
+            with yt_dlp.YoutubeDL({"quiet": True}) as probe:
                 info = probe.extract_info(profile_url, download=False)
             entries = info.get("entries") or []
-            total = len(entries) if count is None else min(len(entries), count)
+            if count is not None:
+                entries = entries[:count]
+            total = len(entries)
             if total == 0:
                 self.log_line("⚠️ No videos found.")
                 self.btn_download.config(state="normal")
@@ -207,8 +207,14 @@ class TikTokDownloader(tk.Tk):
             self.progress["value"] = 0
             self.log_line(f"Found {total} video(s). Starting download…")
 
+            # Download each video individually to respect count
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([profile_url])
+                for entry in entries:
+                    if self.stop_flag:
+                        break
+                    video_url = entry.get("url")
+                    if video_url:
+                        ydl.download([video_url])
 
             if not self.stop_flag:
                 self.log_line("✅ All done.")
@@ -219,8 +225,7 @@ class TikTokDownloader(tk.Tk):
 
     def _progress_hook(self, d):
         if self.stop_flag:
-            raise KeyboardInterrupt("Stopped by user")
-
+            return  # stop gracefully
         if d.get("status") == "finished":
             self.completed += 1
             self.lbl_completed.config(text=f"Completed [{self.completed}]")
