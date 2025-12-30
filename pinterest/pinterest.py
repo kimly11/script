@@ -4,6 +4,7 @@ import subprocess
 import threading
 import os
 import signal
+import shutil
 
 process = None
 
@@ -26,6 +27,10 @@ def start_download():
 
     if folder == "No folder selected":
         messagebox.showerror("Error", "Please select a save folder")
+        return
+
+    if not shutil.which("gallery-dl"):
+        messagebox.showerror("Error", "gallery-dl is not installed or found in PATH.\nPlease run 'pip install gallery-dl' to fix this.")
         return
 
     cmd = [

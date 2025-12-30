@@ -4,6 +4,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import ttk
+import traceback
 import yt_dlp
 
 APP_TITLE = "Kimly Tool KH — TikTok Downloader"
@@ -29,6 +30,7 @@ class TikTokDownloader(tk.Tk):
         self.stop_flag = False
         self.completed = 0
         self.download_folder = ""
+        self.cookies_file = ""
 
         # --- Header ---
         header = tk.Frame(self, bg="#0d6efd", height=48)
@@ -58,9 +60,17 @@ class TikTokDownloader(tk.Tk):
         self.folder_lbl.pack(side="left")
         tk.Button(folder_row, text="Browse Folder", command=self.choose_folder).pack(side="left", padx=12)
 
+        # Cookies chooser
+        cookies_row = tk.Frame(content)
+        cookies_row.grid(row=5, column=0, columnspan=4, sticky="we", pady=(2, 12))
+        self.cookies_lbl = tk.Label(cookies_row, text="No cookies file selected (Optional)", font=("Segoe UI", 10))
+        self.cookies_lbl.pack(side="left")
+        tk.Button(cookies_row, text="Select Cookies", command=self.choose_cookies).pack(side="left", padx=12)
+
+
         # Options
         opt_row = tk.Frame(content)
-        opt_row.grid(row=5, column=0, columnspan=4, sticky="w", pady=(0, 12))
+        opt_row.grid(row=6, column=0, columnspan=4, sticky="w", pady=(0, 12))
         self.var_all = tk.BooleanVar(value=True)
         tk.Checkbutton(opt_row, text="Download all (Profile)", variable=self.var_all, command=self.toggle_count).pack(side="left")
         tk.Label(opt_row, text="Download (count):").pack(side="left", padx=(18, 6))
@@ -71,7 +81,7 @@ class TikTokDownloader(tk.Tk):
 
         # Buttons
         btn_row = tk.Frame(content)
-        btn_row.grid(row=6, column=0, columnspan=4, sticky="w", pady=(0, 10))
+        btn_row.grid(row=7, column=0, columnspan=4, sticky="w", pady=(0, 10))
         self.btn_download = tk.Button(btn_row, text="Download", width=12, command=self.start_download)
         self.btn_stop = tk.Button(btn_row, text="Stop", width=12, command=self.stop_download)
         self.btn_clear = tk.Button(btn_row, text="Clear", width=12, command=self.clear_log)
@@ -83,12 +93,13 @@ class TikTokDownloader(tk.Tk):
 
         # Progress bar
         self.progress = ttk.Progressbar(content, mode="determinate")
-        self.progress.grid(row=7, column=0, columnspan=4, sticky="we", pady=(0, 12))
+        self.progress.grid(row=8, column=0, columnspan=4, sticky="we", pady=(0, 12))
 
         # Log box
+        # Log box
         self.log = tk.Text(content, height=14, font=("Consolas", 10), bg="#0e0e0e", fg="#e6e6e6")
-        self.log.grid(row=8, column=0, columnspan=4, sticky="nsew")
-        content.grid_rowconfigure(8, weight=1)
+        self.log.grid(row=9, column=0, columnspan=4, sticky="nsew")
+        content.grid_rowconfigure(9, weight=1)
         content.grid_columnconfigure(0, weight=1)
 
         # Footer
@@ -105,6 +116,12 @@ class TikTokDownloader(tk.Tk):
         if folder:
             self.download_folder = folder
             self.folder_lbl.config(text=folder)
+            
+    def choose_cookies(self):
+        f = filedialog.askopenfilename(title="Select cookies.txt", filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
+        if f:
+            self.cookies_file = f
+            self.cookies_lbl.config(text=os.path.basename(f))
 
     def toggle_count(self):
         state = "disabled" if self.var_all.get() else "normal"
@@ -128,6 +145,11 @@ class TikTokDownloader(tk.Tk):
     def start_download(self):
         profile_url = clean_profile_url(self.profile_entry.get().strip())
         video_url = self.video_entry.get().strip()
+
+        # Fix for photo slideshows: yt-dlp requires /video/ and Mobile UA
+        if "/photo/" in video_url:
+            self.log_line("ℹ️ Detected photo URL, applying fix…")
+            video_url = video_url.replace("/photo/", "/video/")
 
         if not profile_url and not video_url:
             messagebox.showerror("Error", "Please enter a TikTok profile or video link.")
@@ -165,13 +187,23 @@ class TikTokDownloader(tk.Tk):
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [self._progress_hook],
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "extractor_args": {"tiktok": {"impersonate": [""]}}, # Disable internal auto-impersonation to avoid 403
+            # "impersonate": "chrome120",
         }
+        if self.cookies_file:
+            self.log_line(f"🍪 Using cookies: {os.path.basename(self.cookies_file)}")
+            ydl_opts["cookiefile"] = self.cookies_file
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
             self.log_line("✅ Video downloaded successfully.")
         except Exception as e:
             self.log_line(f"❌ Error: {e}")
+            self.log_line(traceback.format_exc())
+            if "Unable to extract webpage" in str(e):
+                 self.log_line("💡 HINT: TikTok is blocking the request. Use the 'Select Cookies' button with a cookies.txt file from your browser.")
+                 messagebox.showinfo("Extraction Error", "TikTok refused the connection.\n\nPlease export cookies.txt from your browser and select it in the tool.")
         finally:
             self.btn_download.config(state="normal")
 
@@ -188,11 +220,29 @@ class TikTokDownloader(tk.Tk):
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [self._progress_hook],
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "extractor_args": {"tiktok": {"impersonate": [""]}}, # Disable internal auto-impersonation to avoid 403
+            # "impersonate": "chrome120",
         }
+<<<<<<< HEAD
 
         try:
             # Extract videos without flattening
             with yt_dlp.YoutubeDL({"quiet": True}) as probe:
+=======
+        if self.cookies_file:
+            self.log_line(f"🍪 Using cookies: {os.path.basename(self.cookies_file)}")
+            ydl_opts["cookiefile"] = self.cookies_file
+        if count is not None:
+            ydl_opts["playlistend"] = count
+
+        try:
+            # Count videos first
+            probe_opts = {"quiet": True, "extract_flat": "in_playlist"}
+            if self.cookies_file:
+                probe_opts["cookiefile"] = self.cookies_file
+            with yt_dlp.YoutubeDL(probe_opts) as probe:
+>>>>>>> 69d9948aa69aa475f1980d3aa52028002051939a
                 info = probe.extract_info(profile_url, download=False)
             entries = info.get("entries") or []
             if count is not None:
@@ -231,7 +281,7 @@ class TikTokDownloader(tk.Tk):
             self.lbl_completed.config(text=f"Completed [{self.completed}]")
             self.progress["value"] = self.completed
             self.log_line(f"⬇️ Saved: {os.path.basename(d.get('filename',''))}")
-
+            
 if __name__ == "__main__":
     app = TikTokDownloader()
     app.mainloop()
